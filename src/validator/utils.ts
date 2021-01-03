@@ -213,12 +213,13 @@ export function getFullPathToValidatorBinary(version?: string): string {
 }
 
 function getArchitecture(): string {
-  if (process.arch === "x64") {
-    return "x86_64";
-  }
-  throw new Error(
-    `Architecture "${process.arch}" is not supported by TabNine Validator`
-  );
+  return "x86_64";
+  // if (process.arch === "x64") {
+  //   return "x86_64";
+  // }
+  // throw new Error(
+  //   `Architecture "${process.arch}" is not supported by TabNine Validator`
+  // );
 }
 
 function getTargetAndFileNameByPlatform(): {
