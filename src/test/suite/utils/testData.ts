@@ -39,9 +39,12 @@ export const MOCKED_ZIP_FILE = path.join(
 export const DOWNLOAD_ERROR = new Error("Download failure");
 
 // Needs to match what inside the completion.txt file
-const A_COMPLETION_PREFIX = "blabla";
+export const A_COMPLETION_PREFIX = "blabla";
 export const A_SUGGESTION = `${A_COMPLETION_PREFIX}bla`;
 const ANOTHER_SUGGESTION = `${A_COMPLETION_PREFIX}_test`;
+export const SINGLE_CHANGE_CHARACTER = "k";
+export const INLINE_PREFIX = `${A_COMPLETION_PREFIX}${SINGLE_CHANGE_CHARACTER}`;
+export const INLINE_NEW_PREFIX = `${A_COMPLETION_PREFIX}${SINGLE_CHANGE_CHARACTER}bla`;
 
 export function anEventRequest(
   name: string,
@@ -56,23 +59,29 @@ export function aNotificationId(): string {
 
 export function anAutocompleteResponse(
   oldPrefix?: string,
-  newPrefix?: string
+  newPrefix?: string,
+  oldSuffix = "",
+  newSuffix = ""
 ): AutocompleteResult {
   return {
     old_prefix: oldPrefix !== undefined ? oldPrefix : A_COMPLETION_PREFIX,
     results: [
       {
         new_prefix: newPrefix !== undefined ? newPrefix : A_SUGGESTION,
-        old_suffix: "",
-        new_suffix: "",
-        origin: CompletionOrigin.VANILLA,
+        old_suffix: oldSuffix,
+        new_suffix: newSuffix,
+        completion_metadata: {
+          origin: CompletionOrigin.VANILLA,
+        },
       },
       {
         new_prefix: ANOTHER_SUGGESTION,
-        detail: "5%",
         old_suffix: "",
         new_suffix: "",
-        origin: CompletionOrigin.LOCAL,
+        completion_metadata: {
+          detail: "5%",
+          origin: CompletionOrigin.LOCAL,
+        },
       },
     ],
     user_message: [""],
@@ -87,9 +96,10 @@ export function aCompletionResult(): Record<string, unknown>[] {
       kind: CompletionItemKind.Property,
       detail: BRAND_NAME,
       sortText: "\u0000\u0000",
+      filterText: A_SUGGESTION,
       preselect: true,
       insertText: {
-        _tabstop: 1,
+        e: 1,
         value: A_SUGGESTION,
       },
     },
@@ -98,9 +108,9 @@ export function aCompletionResult(): Record<string, unknown>[] {
       kind: CompletionItemKind.Property,
       detail: BRAND_NAME,
       sortText: "\u0000\u0001",
-      preselect: undefined,
+      filterText: ANOTHER_SUGGESTION,
       insertText: {
-        _tabstop: 1,
+        e: 1,
         value: ANOTHER_SUGGESTION,
       },
     },

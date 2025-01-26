@@ -8,68 +8,78 @@ import {
   TextEditor,
   TextEditorEdit,
   workspace,
-  ExtensionContext,
 } from "vscode";
 import findImports from "./findImports";
 import CompletionOrigin from "./CompletionOrigin";
-import { DELAY_FOR_CODE_ACTION_PROVIDER } from "./globals/consts";
+import {
+  DELAY_FOR_CODE_ACTION_PROVIDER,
+  SuggestionTrigger,
+} from "./globals/consts";
 import { ResultEntry } from "./binary/requests/requests";
 import setState, {
   SelectionStateRequest,
   SetStateSuggestion,
 } from "./binary/requests/setState";
 import { CompletionArguments } from "./CompletionArguments";
-import { doPollStatus } from "./statusBar/pollStatusBar";
-import setHover from "./hovers/hoverHandler";
-import { doPollNotifications } from "./notifications/pollNotifications";
+import { Logger } from "./utils/logger";
 
 export const COMPLETION_IMPORTS = "tabnine-completion-imports";
 export const HANDLE_IMPORTS = "tabnine-handle-imports";
+export const SELECTION_COMPLETED = "tabnine-selection-completed";
 
-export function getSelectionHandler(
-  context: ExtensionContext
-): (
+export function selectionHandler(
   editor: TextEditor,
-  edit: TextEditorEdit,
-  args: CompletionArguments
-) => void {
-  return function selectionHandler(
-    editor: TextEditor,
-    _edit: TextEditorEdit,
-    { currentCompletion, completions, position, limited }: CompletionArguments
-  ): void {
-    try {
-      handleState(position, completions, currentCompletion, limited, editor);
+  _edit: TextEditorEdit,
+  {
+    currentCompletion,
+    completions,
+    position,
+    limited,
+    oldPrefix,
+    suggestionTrigger,
+  }: CompletionArguments
+): void {
+  try {
+    handleState(
+      position,
+      completions,
+      currentCompletion,
+      limited,
+      editor,
+      oldPrefix,
+      suggestionTrigger
+    );
 
-      void commands.executeCommand(HANDLE_IMPORTS, {
-        completion: currentCompletion,
-      });
-    } catch (error) {
-      console.error(error);
-    }
-  };
+    void commands.executeCommand(HANDLE_IMPORTS, {
+      completion: currentCompletion,
+    });
+  } catch (error) {
+    Logger.error(error);
+  }
+}
 
-  function handleState(
-    position: Position,
-    completions: ResultEntry[],
-    currentCompletion: string,
-    limited: boolean,
-    editor: TextEditor
-  ) {
-    if (position && completions?.length) {
-      const eventData = eventDataOf(
-        completions,
-        currentCompletion,
-        limited,
-        editor,
-        position
-      );
-      void setState(eventData).then(() => {
-        void doPollNotifications(context);
-        void doPollStatus(context);
-        void setHover(context, position);
-      });
-    }
+function handleState(
+  position: Position,
+  completions: ResultEntry[],
+  currentCompletion: string,
+  limited: boolean,
+  editor: TextEditor,
+  oldPrefix?: string,
+  suggestionTrigger?: SuggestionTrigger
+) {
+  if (position && completions?.length) {
+    const eventData = eventDataOf(
+      completions,
+      currentCompletion,
+      limited,
+      editor,
+      position,
+      oldPrefix,
+      suggestionTrigger
+    );
+    void setState(eventData).then(() =>
+      commands.executeCommand(SELECTION_COMPLETED)
+    );
   }
 }
 
@@ -78,7 +88,9 @@ function eventDataOf(
   currentCompletion: string,
   limited: boolean,
   editor: TextEditor,
-  position: Position
+  position: Position,
+  oldPrefix?: string,
+  suggestionTrigger?: SuggestionTrigger
 ) {
   const index = completions.findIndex(
     ({ new_prefix: newPrefix }) => newPrefix === currentCompletion
@@ -89,9 +101,10 @@ function eventDataOf(
   let numOfLspSuggestions = 0;
   let numOfVanillaKeywordSuggestions = 0;
   const currInCompletions = completions[index];
+  const snippetContext = currInCompletions.completion_metadata?.snippet_context;
 
   const suggestions: SetStateSuggestion[] = completions.map((c) => {
-    switch (c.origin) {
+    switch (c.completion_metadata?.origin) {
       case CompletionOrigin.VANILLA:
         numOfVanillaSuggestions += 1;
         break;
@@ -99,6 +112,8 @@ function eventDataOf(
         numOfDeepLocalSuggestions += 1;
         break;
       case CompletionOrigin.CLOUD:
+      case CompletionOrigin.CLOUD2:
+      case CompletionOrigin.ANBU:
         numOfDeepCloudSuggestions += 1;
         break;
       case CompletionOrigin.LSP:
@@ -114,21 +129,23 @@ function eventDataOf(
     return {
       length: c.new_prefix.length,
       strength: resolveDetailOf(c),
-      origin: c.origin ?? CompletionOrigin.UNKNOWN,
+      origin: c.completion_metadata?.origin ?? CompletionOrigin.UNKNOWN,
     };
   });
 
   const { length } = currentCompletion;
-  const netLength = editor.selection.anchor.character - position.character;
+  const netLength = length - (oldPrefix?.length || 0);
   const strength = resolveDetailOf(currInCompletions);
-  const { origin } = currInCompletions;
+  const { origin } = currInCompletions.completion_metadata ?? {};
   const prefixLength = editor.document
     .getText(new Range(new Position(position.line, 0), position))
     .trimLeft().length;
-  const netPrefixLength = prefixLength - (currentCompletion.length - netLength);
-  const suffixLength =
-    editor.document.lineAt(position).text.trim().length -
-    (prefixLength + netLength);
+  const netPrefixLength = prefixLength - (length - netLength);
+  // suffixLength is defined to be 0 if the completion has more than 1 line.
+  const suffixLength = currInCompletions.new_prefix.includes("\n")
+    ? 0
+    : editor.document.lineAt(position).text.trim().length -
+      (prefixLength + netLength);
   const numOfSuggestions = completions.length;
 
   const eventData: SelectionStateRequest = {
@@ -150,7 +167,9 @@ function eventDataOf(
       num_of_vanilla_keyword_suggestions: numOfVanillaKeywordSuggestions,
       suggestions,
       is_locked: limited,
-      completion_kind: currInCompletions.completion_kind,
+      completion_kind: currInCompletions.completion_metadata?.completion_kind,
+      snippet_context: snippetContext,
+      suggestion_trigger: suggestionTrigger,
     },
   };
 
@@ -158,11 +177,11 @@ function eventDataOf(
 }
 
 function resolveDetailOf(completion: ResultEntry): string | undefined {
-  if (completion.origin === CompletionOrigin.LSP) {
+  if (completion.completion_metadata?.origin === CompletionOrigin.LSP) {
     return "";
   }
 
-  return completion.detail;
+  return completion.completion_metadata?.detail;
 }
 
 function extractLanguage(editor: TextEditor) {
@@ -212,6 +231,6 @@ async function doAutoImport(
       await commands.executeCommand(HANDLE_IMPORTS, { completion });
     }
   } catch (error) {
-    console.error(error);
+    Logger.error(error);
   }
 }

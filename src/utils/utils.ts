@@ -1,19 +1,30 @@
 import * as vscode from "vscode";
+import * as url from "url";
 
 export function withPolling(
-  callback: (clear: () => void) => void,
+  callback: (clear: () => void) => void | Promise<void>,
   interval: number,
-  timeout: number
+  timeout: number,
+  shouldImmediatelyInvoke = false,
+  onTimeout = () => {}
 ): void {
-  const pollingInterval = setInterval(() => callback(clearPolling), interval);
+  const pollingInterval = setInterval(
+    () => void callback(clearPolling),
+    interval
+  );
 
   const pollingTimeout = setTimeout(() => {
     clearInterval(pollingInterval);
+    onTimeout();
   }, timeout);
 
   function clearPolling() {
     clearInterval(pollingInterval);
     clearTimeout(pollingTimeout);
+  }
+
+  if (shouldImmediatelyInvoke) {
+    void callback(clearPolling);
   }
 }
 
@@ -32,6 +43,22 @@ export async function assertFirstTimeReceived(
 
 export function sleep(time: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, time));
+}
+
+export function rejectOnTimeout<T>(
+  promise: Promise<T>,
+  time: number
+): Promise<T> {
+  return Promise.race([
+    sleep(time).then(() =>
+      Promise.reject(new Error(`Operation timed out after ${time} ms`))
+    ),
+    promise,
+  ]);
+}
+
+export function waitForRejection<T>(promise: Promise<T>, time: number) {
+  return Promise.race([sleep(time), promise.then(() => Promise.reject())]);
 }
 
 // eslint-disable-next-line
@@ -75,4 +102,25 @@ export function escapeTabStopSign(value: string): string {
 
 export function isMultiline(text?: string): boolean {
   return text?.includes("\n") || false;
+}
+
+export async function timed<T>(
+  fn: () => Promise<T>
+): Promise<{ time: number; value: T }> {
+  const time = process.hrtime();
+  const value = await fn();
+  const after = hrtimeToMs(process.hrtime(time));
+  return { time: after, value };
+}
+
+export function hrtimeToMs(hrtime: [number, number]): number {
+  const seconds = hrtime[0];
+  const nanoseconds = hrtime[1];
+  return seconds * 1000 + nanoseconds / 1000000;
+}
+
+export function host(targetUrl: string): string | undefined {
+  const { host: targetHost } = url.parse(targetUrl);
+
+  return targetHost ?? undefined;
 }

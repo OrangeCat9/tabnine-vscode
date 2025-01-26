@@ -13,7 +13,7 @@ import {
 import { resetBinaryForTesting } from "../../binary/requests/requests";
 import {
   BINARY_NOTIFICATION_POLLING_INTERVAL,
-  MessageActions,
+  MessageActionsEnum,
   StateType,
 } from "../../globals/consts";
 import { sleep } from "../../utils/utils";
@@ -33,6 +33,7 @@ import {
   PROMO_TYPE,
   SAME_NOTIFICATION_ID,
 } from "./utils/testData";
+import * as asExternalUri from "../../utils/asExternalUri";
 
 type OpenWebviewParams = [
   viewType: string,
@@ -73,9 +74,9 @@ suite("Should poll notifications", () => {
           id: aNotificationId(),
           message: A_MESSAGE,
           options: [
-            { actions: [MessageActions.NONE], key: AN_OPTION_KEY },
+            { actions: [MessageActionsEnum.NONE], key: AN_OPTION_KEY },
             {
-              actions: [MessageActions.NONE],
+              actions: [MessageActionsEnum.NONE],
               key: ANOTHER_OPTION_KEY,
             },
           ],
@@ -116,9 +117,9 @@ suite("Should poll notifications", () => {
           id: DIFFERENT_NOTIFICATION_ID,
           message: A_MESSAGE,
           options: [
-            { actions: [MessageActions.NONE], key: AN_OPTION_KEY },
+            { actions: [MessageActionsEnum.NONE], key: AN_OPTION_KEY },
             {
-              actions: [MessageActions.NONE],
+              actions: [MessageActionsEnum.NONE],
               key: ANOTHER_OPTION_KEY,
             },
           ],
@@ -128,7 +129,7 @@ suite("Should poll notifications", () => {
         {
           id: ANOTHER_NOTIFICATION_ID,
           message: ANOTHER_MESSAGE,
-          options: [{ actions: [MessageActions.NONE], key: AN_OPTION_KEY }],
+          options: [{ actions: [MessageActionsEnum.NONE], key: AN_OPTION_KEY }],
           notification_type: PROMO_TYPE,
           state: null,
         },
@@ -161,9 +162,9 @@ suite("Should poll notifications", () => {
             id: SAME_NOTIFICATION_ID,
             message: A_MESSAGE,
             options: [
-              { actions: [MessageActions.NONE], key: AN_OPTION_KEY },
+              { actions: [MessageActionsEnum.NONE], key: AN_OPTION_KEY },
               {
-                actions: [MessageActions.NONE],
+                actions: [MessageActionsEnum.NONE],
                 key: ANOTHER_OPTION_KEY,
               },
             ],
@@ -178,9 +179,9 @@ suite("Should poll notifications", () => {
             id: SAME_NOTIFICATION_ID,
             message: A_MESSAGE,
             options: [
-              { actions: [MessageActions.NONE], key: AN_OPTION_KEY },
+              { actions: [MessageActionsEnum.NONE], key: AN_OPTION_KEY },
               {
-                actions: [MessageActions.NONE],
+                actions: [MessageActionsEnum.NONE],
                 key: ANOTHER_OPTION_KEY,
               },
             ],
@@ -230,12 +231,9 @@ suite("Should poll notifications", () => {
       vscode.WebviewPanel
     > = sinon.spy(vscode.window, "createWebviewPanel");
 
-    const asExternalUri: sinon.SinonStub<
-      [uri: Uri],
-      Thenable<Uri>
-    > = sinon.stub(vscode.env, "asExternalUri");
+    const asExternalUriSpy = sinon.stub(asExternalUri, "asExternalUri");
 
-    asExternalUri.onFirstCall().resolves(Uri.parse(LOCAL_HUB_URL));
+    asExternalUriSpy.callsFake(() => Promise.resolve(Uri.parse(LOCAL_HUB_URL)));
 
     showInformationMessage.onFirstCall().resolves(AN_OPTION_KEY);
 
@@ -244,7 +242,9 @@ suite("Should poll notifications", () => {
         {
           id: aNotificationId(),
           message: A_MESSAGE,
-          options: [{ actions: [MessageActions.OPEN_HUB], key: AN_OPTION_KEY }],
+          options: [
+            { actions: [MessageActionsEnum.OPEN_HUB], key: AN_OPTION_KEY },
+          ],
           notification_type: PROMO_TYPE,
           state: null,
         },
@@ -254,10 +254,96 @@ suite("Should poll notifications", () => {
     await sleep(BINARY_NOTIFICATION_POLLING_INTERVAL + SOME_MORE_TIME);
 
     assert(createWebviewPanel.calledOnce, "Hub webview was created");
-    assert(asExternalUri.calledOnce, "asExternalUri invoked");
+    assert(asExternalUriSpy.calledOnce, "asExternalUri invoked");
     assert.strictEqual(
-      asExternalUri.firstCall.args[0].toString(),
+      asExternalUriSpy.firstCall.args[0].toString(),
       REMOTE_HUB_URL
+    );
+
+    assert(
+      !createWebviewPanel.firstCall.returnValue.webview.html.includes(
+        REMOTE_HUB_URL
+      )
+    );
+    assert(
+      createWebviewPanel.firstCall.returnValue.webview.html.includes(
+        LOCAL_HUB_URL
+      )
+    );
+
+    createWebviewPanel.lastCall.returnValue.dispose();
+  });
+
+  test("Opens the hub correctly once clicked with params and path", async () => {
+    const REMOTE_HUB_URL = "https://hub/";
+    const REMOTE_HUB_WITH_PARAMS_AND_PATH =
+      "https://hub/somePath%3Fparam1%3Dvalue1%26param2%3Dvalue2";
+    const LOCAL_HUB_URL =
+      "https://local-hub/somePath?param1=value1&param2=value2";
+
+    requestResponseItems.push({
+      isQualified: (request) => {
+        const configuration = JSON.parse(request) as BinaryGenericRequest<{
+          Configuration: { quiet: boolean; source: StateType };
+        }>;
+        return !!configuration.request?.Configuration;
+      },
+      result: () => ({ message: REMOTE_HUB_URL }),
+    });
+
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    const showInformationMessage: sinon.SinonStub<
+      [message: string, ...items: string[]],
+      Thenable<string | undefined>
+    > = sinon.stub(vscode.window, "showInformationMessage");
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    const createWebviewPanel: sinon.SinonStub<
+      OpenWebviewParams,
+      vscode.WebviewPanel
+    > = sinon.spy(vscode.window, "createWebviewPanel");
+
+    const asExternalUriSpy = sinon.stub(asExternalUri, "asExternalUri");
+
+    asExternalUriSpy.callsFake(() => Promise.resolve(Uri.parse(LOCAL_HUB_URL)));
+
+    showInformationMessage.onFirstCall().resolves(AN_OPTION_KEY);
+
+    setNotificationsResult({
+      notifications: [
+        {
+          id: aNotificationId(),
+          message: A_MESSAGE,
+          options: [
+            {
+              actions: [
+                {
+                  OpenHubWith: {
+                    query_params: [
+                      ["param1", "value1"],
+                      ["param2", "value2"],
+                    ],
+                    path: "/somePath",
+                  },
+                },
+              ],
+              key: AN_OPTION_KEY,
+            },
+          ],
+          notification_type: PROMO_TYPE,
+          state: null,
+        },
+      ],
+    });
+
+    await sleep(BINARY_NOTIFICATION_POLLING_INTERVAL + SOME_MORE_TIME);
+
+    assert(createWebviewPanel.calledOnce, "Hub webview was created");
+    assert(asExternalUriSpy.calledOnce, "asExternalUri invoked");
+    assert.strictEqual(
+      asExternalUriSpy.firstCall.args[0].toString(),
+      REMOTE_HUB_WITH_PARAMS_AND_PATH
     );
 
     assert(

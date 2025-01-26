@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
+import { getTabnineExtensionContext } from "./tabnineExtensionContext";
+import {
+  CA_CERTS_CONFIGURATION,
+  IGNORE_CERTIFICATE_ERRORS_CONFIGURATION,
+  USE_PROXY_CONFIGURATION,
+} from "./consts";
 
-const EXTENSION_SUBSTRING = "tabnine-vscode";
 const TELEMETRY_CONFIG_ID = "telemetry";
 const TELEMETRY_CONFIG_ENABLED_ID = "enableTelemetry";
 
@@ -10,32 +15,37 @@ type ColorCustomizations = {
 
 interface TabNineExtensionProperties {
   extensionPath: string | undefined;
-  version: string | undefined;
+  version: string;
   name: string;
   vscodeVersion: string;
   isTabNineAutoImportEnabled: number | boolean;
   isTypeScriptAutoImports: boolean | undefined;
   isJavaScriptAutoImports: boolean | undefined;
-  id: string | undefined;
+  id: string;
   logFilePath: string;
+  logLevel: string | undefined;
   isRemote: boolean;
-  remoteName: string;
+  remoteName: string | undefined;
   extensionKind: number;
   themeKind: string;
   themeName: string | undefined;
   statusBarColorCustomizations: string | undefined;
   isInstalled: boolean;
   isVscodeTelemetryEnabled: boolean;
-  isExtentionBetaChannelEnabled: boolean;
+  isExtensionBetaChannelEnabled: boolean;
   isVscodeInsiders: boolean;
+  codeReviewBaseUrl: string;
+  isVscodeInlineAPIEnabled: boolean | undefined;
+  useProxySupport: boolean;
+  packageName: string;
+  logEngine: boolean | undefined;
+  caCerts: string | undefined;
+  ignoreCertificateErrors: boolean;
+  codeLensEnabled: boolean | undefined;
+  foundIntellicode: boolean;
 }
 
 function getContext(): TabNineExtensionProperties {
-  const extension:
-    | vscode.Extension<unknown>
-    | undefined = vscode.extensions.all.find((x) =>
-    x.id.includes(EXTENSION_SUBSTRING)
-  );
   const configuration = vscode.workspace.getConfiguration();
   const isJavaScriptAutoImports = configuration.get<boolean>(
     "javascript.suggest.autoImports"
@@ -44,13 +54,20 @@ function getContext(): TabNineExtensionProperties {
     "typescript.suggest.autoImports"
   );
   const autoImportConfig = "tabnine.experimentalAutoImports";
-  const logFilePath = configuration.get<string>("tabnine.logFilePath");
+
+  let logFilePath = configuration.get<string>("tabnine.logFilePath");
+  if (!logFilePath) {
+    logFilePath = process.env.TABNINE_BINARY_LOG_FILE_PATH;
+  }
+
+  let logLevel = configuration.get<string>("tabnine.logLevel");
+  if (!logLevel) {
+    logLevel = process.env.TABNINE_BINARY_LOG_LEVEL;
+  }
+
   let isTabNineAutoImportEnabled = configuration.get<boolean | null | number>(
     autoImportConfig
   );
-  const { remoteName } = vscode.env as { remoteName: string };
-  const { extensionKind } = extension as { extensionKind: number };
-  const isRemote = !!remoteName && extensionKind === 2;
   const isInstalled = isTabNineAutoImportEnabled === null;
 
   if (isTabNineAutoImportEnabled !== false) {
@@ -61,8 +78,12 @@ function getContext(): TabNineExtensionProperties {
       true
     );
   }
-  const isExtentionBetaChannelEnabled =
+  const isExtensionBetaChannelEnabled =
     configuration.get<boolean>("tabnine.receiveBetaChannelUpdates") || false;
+
+  const useProxySupport = Boolean(
+    configuration.get<boolean>(USE_PROXY_CONFIGURATION)
+  );
 
   const isVscodeInsiders = vscode.env.appName
     .toLocaleLowerCase()
@@ -70,18 +91,21 @@ function getContext(): TabNineExtensionProperties {
 
   return {
     get extensionPath(): string | undefined {
-      return extension?.extensionPath;
+      return getTabnineExtensionContext().extension.extensionPath;
+    },
+    get packageName(): string {
+      return packageName();
     },
 
-    get version(): string | undefined {
-      return (extension?.packageJSON as { version: string }).version;
+    get version(): string {
+      return version();
     },
     get id() {
-      return extension?.id;
+      return getTabnineExtensionContext().extension.id;
     },
 
     get name(): string {
-      return `${EXTENSION_SUBSTRING}-${this.version ?? "unknown"}`;
+      return `${packageName()}-${version() ?? "unknown"}`;
     },
     get vscodeVersion(): string {
       return vscode.version;
@@ -98,14 +122,29 @@ function getContext(): TabNineExtensionProperties {
     get logFilePath(): string {
       return logFilePath ? `${logFilePath}-${process.pid}` : "";
     },
+    get useProxySupport(): boolean {
+      return useProxySupport;
+    },
+    get caCerts(): string | undefined {
+      return configuration.get<string>(CA_CERTS_CONFIGURATION);
+    },
+    get ignoreCertificateErrors(): boolean {
+      return !!configuration.get<boolean>(
+        IGNORE_CERTIFICATE_ERRORS_CONFIGURATION
+      );
+    },
+    get logLevel(): string | undefined {
+      return logLevel;
+    },
     get isRemote(): boolean {
+      const isRemote = !!remoteName() && extensionKind() === 2;
       return isRemote;
     },
-    get remoteName(): string {
-      return remoteName;
+    get remoteName(): string | undefined {
+      return remoteName();
     },
     get extensionKind(): number {
-      return extensionKind;
+      return extensionKind();
     },
     get themeKind(): string {
       return vscode.ColorThemeKind[vscode.window.activeColorTheme.kind];
@@ -136,11 +175,35 @@ function getContext(): TabNineExtensionProperties {
 
       return isTelemetryEnabled;
     },
-    get isExtentionBetaChannelEnabled(): boolean {
-      return isExtentionBetaChannelEnabled;
+    get isExtensionBetaChannelEnabled(): boolean {
+      return isExtensionBetaChannelEnabled;
     },
     get isVscodeInsiders(): boolean {
       return isVscodeInsiders;
+    },
+    get codeReviewBaseUrl(): string {
+      return (
+        configuration.get<string>("tabnine.codeReviewBaseUrl") ??
+        "https://api.tabnine.com/code-review/"
+      );
+    },
+    get isVscodeInlineAPIEnabled(): boolean | undefined {
+      const INLINE_API_KEY = "editor.inlineSuggest.enabled";
+      if (configuration.has(INLINE_API_KEY)) {
+        return configuration.get<boolean>(INLINE_API_KEY, false);
+      }
+      return undefined;
+    },
+    get logEngine(): boolean | undefined {
+      return configuration.get<boolean>("tabnine.logEngine");
+    },
+    get codeLensEnabled(): boolean | undefined {
+      return configuration.get<boolean>("tabnine.codeLensEnabled");
+    },
+    get foundIntellicode(): boolean {
+      return vscode.extensions.all.some(
+        (e) => e.id.includes("vscodeintellicode") && e.isActive
+      );
     },
   };
 }
@@ -152,3 +215,24 @@ function getWorkbenchSettings() {
 const tabnineExtensionProperties: TabNineExtensionProperties = getContext();
 
 export default tabnineExtensionProperties;
+
+function packageName(): string {
+  return (
+    (getTabnineExtensionContext().extension.packageJSON as { name: string })
+      ?.name || ""
+  );
+}
+
+function version(): string {
+  return (getTabnineExtensionContext().extension.packageJSON as {
+    version: string;
+  }).version;
+}
+
+function remoteName(): string | undefined {
+  return vscode.env.remoteName;
+}
+
+function extensionKind(): number {
+  return getTabnineExtensionContext().extension.extensionKind as number;
+}

@@ -1,52 +1,57 @@
-import { ExtensionContext, StatusBarAlignment, window } from "vscode";
+import {
+  Disposable,
+  ExtensionContext,
+  StatusBarAlignment,
+  window,
+} from "vscode";
 import { getState } from "../binary/requests/requests";
-import { ServiceLevel, State } from "../binary/state";
 import { STATUS_BAR_COMMAND } from "../commandsHandler";
 import { FULL_BRAND_REPRESENTATION, STATUS_NAME } from "../globals/consts";
 import StatusBarData from "./StatusBarData";
 import StatusBarPromotionItem from "./StatusBarPromotionItem";
+import { ServiceLevel } from "../binary/state";
+import { Logger } from "../utils/logger";
+import { completionsState } from "../state/completionsState";
 
 const SPINNER = "$(sync~spin)";
 
 let statusBarData: StatusBarData | undefined;
 let promotion: StatusBarPromotionItem | undefined;
 
-export function registerStatusBar(context: ExtensionContext): void {
+export function registerStatusBar(context: ExtensionContext): Disposable {
   if (statusBarData) {
-    return;
+    return statusBarData;
   }
 
-  const statusBar = window.createStatusBarItem(StatusBarAlignment.Left, -1);
+  const statusBar = window.createStatusBarItem(StatusBarAlignment.Right, -1);
   promotion = new StatusBarPromotionItem(
-    window.createStatusBarItem(StatusBarAlignment.Left, -1)
+    window.createStatusBarItem(StatusBarAlignment.Right, -1)
   );
   statusBarData = new StatusBarData(statusBar, context);
   statusBar.command = STATUS_BAR_COMMAND;
+
   statusBar.show();
   try {
     (statusBar as { name?: string }).name = STATUS_NAME;
     (promotion.item as { name?: string }).name = STATUS_NAME;
   } catch (err) {
-    console.error("failed to rename status bar");
+    Logger.error("failed to rename status bar");
   }
+
+  completionsState.on("changed", () => statusBarData?.updateStatusBar());
 
   setLoadingStatus("Starting...");
-  context.subscriptions.push(statusBar);
-  context.subscriptions.push(promotion.item);
-}
-
-export async function pollServiceLevel(): Promise<void> {
-  if (!statusBarData) {
-    return;
-  }
-
-  const state = await getState();
-
-  statusBarData.serviceLevel = state?.service_level;
+  return Disposable.from(statusBarData, promotion);
 }
 
 export function promotionTextIs(text: string): boolean {
   return promotion?.item?.text === text;
+}
+
+export function setServiceLevel(level: ServiceLevel | undefined): void {
+  if (statusBarData) {
+    statusBarData.serviceLevel = level;
+  }
 }
 
 export async function onStartServiceLevel(): Promise<void> {
@@ -55,15 +60,8 @@ export async function onStartServiceLevel(): Promise<void> {
   }
 
   const state = await getState();
-
-  statusBarData.serviceLevel =
-    state?.service_level === "Free"
-      ? serviceLevelBaseOnAPIKey(state)
-      : state?.service_level;
-}
-
-function serviceLevelBaseOnAPIKey(state: State): ServiceLevel {
-  return state?.api_key ? "Pro" : "Free";
+  statusBarData.serviceLevel = state?.service_level;
+  statusBarData.isLoggedIn = state?.is_logged_in;
 }
 
 export function setDefaultStatus(): void {
@@ -113,7 +111,7 @@ export function setPromotionStatus(
   promotion.item.tooltip = `${FULL_BRAND_REPRESENTATION}${
     tooltip ? ` - ${tooltip}` : ""
   }`;
-  promotion.item.color = "yellow";
+  promotion.item.color = "white";
   statusBarData.text = " ";
   promotion.item.show();
 }

@@ -19,6 +19,7 @@ const config = {
     filename: `[name].js`,
     libraryTarget: "commonjs2",
     devtoolModuleFilenameTemplate: "../[resource-path]",
+    clean: true,
   },
   node: {
     __dirname: false, // leave the __dirname behavior intact
@@ -38,7 +39,7 @@ const config = {
     rules: [
       {
         test: /\.ts$/,
-        exclude: /node_modules/,
+        exclude: [/node_modules/, /chat/],
         use: [
           {
             loader: "ts-loader",
@@ -57,6 +58,18 @@ const config = {
         ].includes(resource),
     }),
   ],
+  infrastructureLogging: {
+    level: "log",
+  },
+  stats: {
+    preset: "errors-warnings",
+    assets: true,
+    colors: true,
+    env: true,
+    errorsCount: true,
+    warningsCount: true,
+    timings: true,
+  },
   optimization: {
     minimizer: [new TerserPlugin({ extractComments: false })],
   },
@@ -64,7 +77,11 @@ const config = {
 
 module.exports = (env) => {
   if (env.analyzeBundle) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     config.plugins.push(new BundleAnalyzerPlugin());
+  }
+  if (env.enterprise) {
+    config.entry.extension = "./src/enterprise/extension.ts";
   }
 
   return [config];

@@ -1,11 +1,13 @@
 **/node_modules
 **/out
 dist
+chat/
 
 .vscode-test/
 *.vsix
 **.DS_Store
 binaries/*
+!binaries/downloadBinaries.sh
 
 registration_key
 auth
@@ -17,3 +19,7 @@ sig
 
 **/assistant-cache
 **/assistant-binaries
+package.json.back
+package.json.onprem
+clean.sh
+.vscode/launch.json

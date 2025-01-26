@@ -60,7 +60,7 @@ export function initMocks(): void {
   installedVersion = sinon.stub(tabnineExtensionProperties, "version");
   betaChannelEnabled = sinon.stub(
     tabnineExtensionProperties,
-    "isExtentionBetaChannelEnabled"
+    "isExtensionBetaChannelEnabled"
   );
   tmpMock = sinon.stub(tmp, "file");
   createWriteStreamMock = sinon.stub(fs, "createWriteStream");
@@ -83,7 +83,16 @@ export async function runInstallation(
   const artifactUrl = getArtifactUrl(available);
 
   mockHttp(
-    [[{ assets: [{ browser_download_url: artifactUrl }] }], LATEST_RELEASE_URL],
+    [
+      [
+        {
+          assets: [{ browser_download_url: artifactUrl }],
+          prerelease: true,
+          id: 1,
+        },
+      ],
+      LATEST_RELEASE_URL,
+    ],
     [{ data: "test" }, artifactUrl]
   );
 
@@ -98,7 +107,7 @@ export async function runInstallation(
   );
 }
 
-function getContext(contextGetMocks: ContextGetMocks): ExtensionContext {
+export function getContext(contextGetMocks: ContextGetMocks): ExtensionContext {
   return {
     globalState: {
       get: (key: string) => contextGetMocks[key],

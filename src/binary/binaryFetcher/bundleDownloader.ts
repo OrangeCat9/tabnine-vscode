@@ -11,12 +11,11 @@ import {
   getBundlePath,
   getDownloadVersionUrl,
   getUpdateVersionFileUrl,
-  isWindows,
   versionPath,
 } from "../paths";
-import { EventName, report } from "../../reports/reporter";
-
-const EXECUTABLE_FLAG = 0o755;
+import { report } from "../../reports/reporter";
+import { setDirectoryFilesAsExecutable } from "../utils";
+import EventName from "../../reports/EventName";
 
 type BundlePaths = {
   bundlePath: string;
@@ -66,8 +65,7 @@ function createBundleDirectory(bundleDirectory: string): Promise<void> {
 }
 
 async function getCurrentVersion(): Promise<string> {
-  const versionUrl = getUpdateVersionFileUrl();
-  const version = await downloadFileToStr(versionUrl);
+  const version = await downloadFileToStr(getUpdateVersionFileUrl());
   assertValidVersion(version);
   return version;
 }
@@ -83,18 +81,4 @@ async function extractBundle(
   bundleDirectory: string
 ): Promise<void> {
   return extract(bundle, { dir: bundleDirectory });
-}
-
-async function setDirectoryFilesAsExecutable(
-  bundleDirectory: string
-): Promise<void[]> {
-  if (isWindows()) {
-    return Promise.resolve([]);
-  }
-  const files = await fs.readdir(bundleDirectory);
-  return Promise.all(
-    files.map((file) =>
-      fs.chmod(path.join(bundleDirectory, file), EXECUTABLE_FLAG)
-    )
-  );
 }

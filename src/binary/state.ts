@@ -10,17 +10,17 @@ export enum DownloadProgress {
   VERIFYING_CHECKSUM = "VerifyingChecksum",
 }
 
-export enum OSArchTarget {
+enum OSArchTarget {
   // Partial, has more options.
   APPLE_64 = "x86_64-apple-darwin",
 }
 
-export enum Mode {
+enum Mode {
   // Partial, has more options.
   RELEASE = "Release",
 }
 
-export enum EmuMode {
+enum EmuMode {
   // Partial, has more options.
   NATIVE = "Native",
 }
@@ -40,6 +40,16 @@ export type DownloadState = {
   crnt_bytes?: number;
   total_bytes?: number;
 };
+
+export interface ProcessState {
+  globalRestartStatus: {
+    [processId: string]: {
+      setOn: string;
+      restartOn: string | null;
+      value: "evaluating" | "planned" | "notPlanned";
+    };
+  } | null;
+}
 
 export type State = {
   version: string; // semver compatible version
@@ -67,4 +77,10 @@ export type State = {
   is_authenticated: boolean;
   is_logged_in: boolean;
   user_name: string;
+  process_state?: ProcessState;
+  enabled_features?: string[];
+  installation_time?: string;
+  access_token?: string;
+  cloud_connection_health_status?: string;
+  user_avatar_url?: string;
 };

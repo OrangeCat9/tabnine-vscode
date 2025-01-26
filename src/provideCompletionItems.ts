@@ -15,6 +15,7 @@ import runCompletion from "./runCompletion";
 import { COMPLETION_IMPORTS } from "./selectionHandler";
 import { setCompletionStatus } from "./statusBar/statusBar";
 import { escapeTabStopSign } from "./utils/utils";
+import { Logger } from "./utils/logger";
 
 const INCOMPLETE = true;
 
@@ -37,7 +38,7 @@ async function completionsListFor(
       return [];
     }
 
-    const response = await runCompletion(document, position);
+    const response = await runCompletion({ document, position });
 
     setCompletionStatus(response?.is_locked);
 
@@ -63,7 +64,7 @@ async function completionsListFor(
       })
     );
   } catch (e) {
-    console.error(`Error setting up request: ${e}`);
+    Logger.error(`Error setting up request: ${e}`);
 
     return [];
   }
@@ -99,7 +100,7 @@ function makeCompletionItem(args: {
 
   item.filterText = args.entry.new_prefix;
   item.preselect = args.index === 0;
-  item.kind = args.entry.kind;
+  item.kind = args.entry.completion_metadata?.kind;
   item.range = new vscode.Range(
     args.position.translate(0, -args.oldPrefix.length),
     args.position.translate(0, args.entry.old_suffix.length)
@@ -113,6 +114,7 @@ function makeCompletionItem(args: {
           completions: args.results,
           position: args.position,
           limited: args.limited,
+          oldPrefix: args.oldPrefix,
         },
       ],
       command: COMPLETION_IMPORTS,
@@ -126,8 +128,10 @@ function makeCompletionItem(args: {
       .appendText(escapeTabStopSign(args.entry.new_suffix));
   }
 
-  if (args.entry.documentation) {
-    item.documentation = formatDocumentation(args.entry.documentation);
+  if (args.entry.completion_metadata?.documentation) {
+    item.documentation = formatDocumentation(
+      args.entry.completion_metadata?.documentation
+    );
   }
 
   return item;
@@ -151,40 +155,52 @@ function isMarkdownStringSpec(
   return !(typeof x === "string");
 }
 
-function completionIsAllowed(
+export function completionIsAllowed(
   document: vscode.TextDocument,
   position: vscode.Position
 ): boolean {
   const configuration = vscode.workspace.getConfiguration();
-  let disableLineRegex = configuration.get<string[]>(
-    "tabnine.disable_line_regex"
+  const disableLineRegex = getMisnamedConfigPropertyValue(
+    "tabnine.disableLineRegex",
+    "tabnine.disable_line_regex",
+    configuration
   );
-  if (disableLineRegex === undefined) {
-    disableLineRegex = [];
-  }
+
   const line = document.getText(
     new vscode.Range(
       position.with({ character: 0 }),
       position.with({ character: 500 })
     )
   );
+
   if (disableLineRegex.some((r) => new RegExp(r).test(line))) {
     return false;
   }
 
-  let disableFileRegex = configuration.get<string[]>(
-    "tabnine.disable_file_regex"
+  const disableFileRegex = getMisnamedConfigPropertyValue(
+    "tabnine.disableFileRegex",
+    "tabnine.disable_file_regex",
+    configuration
   );
 
-  if (disableFileRegex === undefined) {
-    disableFileRegex = [];
+  return !disableFileRegex.some((r) => new RegExp(r).test(document.fileName));
+}
+
+function getMisnamedConfigPropertyValue(
+  properPropName: string,
+  propMisname: string,
+  configuration: vscode.WorkspaceConfiguration
+): string[] {
+  let disableLineRegex = configuration.get<string[]>(properPropName);
+  if (!disableLineRegex || !disableLineRegex.length) {
+    disableLineRegex = configuration.get<string[]>(propMisname);
   }
 
-  if (disableFileRegex.some((r) => new RegExp(r).test(document.fileName))) {
-    return false;
+  if (disableLineRegex === undefined) {
+    disableLineRegex = [];
   }
 
-  return true;
+  return disableLineRegex;
 }
 
 function showFew(
@@ -192,7 +208,13 @@ function showFew(
   document: vscode.TextDocument,
   position: vscode.Position
 ): boolean {
-  if (response.results.some((entry) => entry.kind || entry.documentation)) {
+  if (
+    response.results.some(
+      (entry) =>
+        entry.completion_metadata?.kind ||
+        entry.completion_metadata?.documentation
+    )
+  ) {
     return false;
   }
 

@@ -3,8 +3,7 @@ import CompletionOrigin from "../../CompletionOrigin";
 import Binary from "../Binary";
 import { State } from "../state";
 import { StateType } from "../../globals/consts";
-
-const DEFAULT_SNIPPET_TIMEOUT = 5000;
+import { Logger } from "../../utils/logger";
 
 export const tabNineProcess = new Binary();
 
@@ -19,17 +18,43 @@ export enum CompletionKind {
   Snippet = "Snippet",
 }
 
-export type ResultEntry = {
-  new_prefix: string;
-  old_suffix: string;
-  new_suffix: string;
+enum UserIntent {
+  Comment,
+  Block,
+  FunctionDeclaration,
+  NoScope,
+  NewLine,
+  CustomTriggerPoints,
+}
 
+type SnippetIntentMetadata = {
+  current_line_indentation?: number;
+  previous_line_indentation?: number;
+  triggered_after_character?: string;
+};
+
+export interface SnippetContext extends Record<string, unknown> {
+  snippet_id?: string;
+  user_intent: UserIntent;
+  intent_metadata?: SnippetIntentMetadata;
+}
+
+export type CompletionMetadata = {
   kind?: vscode.CompletionItemKind;
   origin?: CompletionOrigin;
   detail?: string;
   documentation?: string | MarkdownStringSpec;
   deprecated?: boolean;
   completion_kind?: CompletionKind;
+  is_cached?: boolean;
+  snippet_context?: SnippetContext;
+};
+
+export type ResultEntry = {
+  new_prefix: string;
+  old_suffix: string;
+  new_suffix: string;
+  completion_metadata?: CompletionMetadata;
 };
 
 export type AutocompleteResult = {
@@ -39,8 +64,8 @@ export type AutocompleteResult = {
   is_locked: boolean;
 };
 
-export function initBinary(): Promise<void> {
-  return tabNineProcess.init();
+export function initBinary(processRunArgs: string[] = []): Promise<void> {
+  return tabNineProcess.init(processRunArgs);
 }
 
 export function resetBinaryForTesting(): void {
@@ -57,33 +82,19 @@ export type AutocompleteParams = {
   offset: number;
   line: number;
   character: number;
-};
-
-export enum SnippetRequestTrigger {
-  Auto = "Auto",
-  User = "User",
-}
-
-export type SnippetAutocompleteParams = AutocompleteParams & {
-  trigger: SnippetRequestTrigger;
+  indentation_size: number;
+  cached_only?: boolean;
 };
 
 export function autocomplete(
-  requestData: AutocompleteParams
-): Promise<AutocompleteResult | undefined | null> {
-  return tabNineProcess.request<AutocompleteResult | undefined | null>({
-    Autocomplete: requestData,
-  });
-}
-
-export function autocompleteSnippet(
-  requestData: AutocompleteParams
+  requestData: AutocompleteParams,
+  timeout?: number
 ): Promise<AutocompleteResult | undefined | null> {
   return tabNineProcess.request<AutocompleteResult | undefined | null>(
     {
-      AutocompleteSnippet: requestData,
+      Autocomplete: requestData,
     },
-    DEFAULT_SNIPPET_TIMEOUT
+    timeout
   );
 }
 
@@ -124,7 +135,7 @@ export function deactivate(): Promise<unknown> {
     return tabNineProcess.request({ Deactivate: {} });
   }
 
-  console.error("No TabNine process");
+  Logger.error("No TabNine process");
 
   return Promise.resolve(null);
 }
@@ -133,8 +144,16 @@ export function uninstalling(): Promise<unknown> {
   return tabNineProcess.request({ Uninstalling: {} });
 }
 
-export type CapabilitiesResponse = {
+export enum ExperimentSource {
+  API = "API",
+  APIErrorResponse = "APIErrorResponse",
+  Hardcoded = "Hardcoded",
+  Unknown = "Unknown",
+}
+
+type CapabilitiesResponse = {
   enabled_features: string[];
+  experiment_source?: ExperimentSource;
 };
 
 export async function getCapabilities(): Promise<
@@ -143,7 +162,7 @@ export async function getCapabilities(): Promise<
   try {
     const result = await tabNineProcess.request<CapabilitiesResponse>(
       { Features: {} },
-      7000
+      20000
     );
 
     if (!Array.isArray(result?.enabled_features)) {
@@ -152,8 +171,42 @@ export async function getCapabilities(): Promise<
 
     return result;
   } catch (error) {
-    console.error(error);
+    Logger.error(error);
 
     return { enabled_features: [] };
   }
+}
+
+export enum ChatCommunicationKind {
+  Forward = "forward",
+  Root = "root",
+}
+
+export type ChatCommunicationAddressResponse = {
+  address: string;
+};
+
+export async function getChatCommunicatorAddress(
+  kind: ChatCommunicationKind
+): Promise<string> {
+  const request = {
+    ChatCommunicatorAddress: { kind },
+  };
+
+  let response = await tabNineProcess.request<ChatCommunicationAddressResponse>(
+    request
+  );
+
+  // retry. Could happen in case of binary restart
+  if (response === null) {
+    response = await tabNineProcess.request<ChatCommunicationAddressResponse>(
+      request
+    );
+  }
+
+  if (!response?.address) {
+    throw new Error("Could not get chat communication address");
+  }
+
+  return response.address;
 }

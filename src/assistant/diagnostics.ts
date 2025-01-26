@@ -29,6 +29,7 @@ import {
   initAssistantThreshold,
   getBackgroundThreshold,
 } from "./handleAssistantThreshold";
+import { Logger } from "../utils/logger";
 
 const decorationType = vscode.window.createTextEditorDecorationType({
   border: "#3794FF 2px",
@@ -37,12 +38,13 @@ const decorationType = vscode.window.createTextEditorDecorationType({
 
 const changesTrackMap = new Map<vscode.Uri, vscode.Position>();
 
-function setDecorators(diagnostics: vscode.Diagnostic[] | undefined) {
+export function setDecorators(
+  diagnostics: vscode.Diagnostic[] | undefined
+): void {
   const editor = vscode.window.activeTextEditor;
-  if (editor && diagnostics) {
-    const decorationsArray: vscode.DecorationOptions[] = diagnostics.map(
-      ({ range }) => ({ range })
-    );
+  const decorationsArray: vscode.DecorationOptions[] =
+    diagnostics?.map(({ range }) => ({ range })) || [];
+  if (editor) {
     editor.setDecorations(decorationType, decorationsArray);
   }
 }
@@ -184,11 +186,11 @@ async function refreshDiagnostics(
       diagnosticsCollection.set(document.uri, newDiagnostics);
     }
     const message = foundDiagnostics ? `${foundDiagnostics}` : "";
-    console.log(message);
+    Logger.debug(message);
     setStatusBarMessage("$(pass)");
   } catch (e: unknown) {
     setStatusBarMessage();
-    console.error(`tabnine assistant: error: `, e);
+    Logger.error(`tabnine assistant: error: ${(e as Error).toString()}`);
   } finally {
     lock();
   }
@@ -306,12 +308,12 @@ function registerAssistantModeToggle(
 
     if (getAssistantMode() === AssistantMode.Paste) {
       void vscode.window.showInformationMessage("tabnine assistant paste mode");
-      console.log("paste validation mode");
+      Logger.info("paste validation mode");
     } else {
       void vscode.window.showInformationMessage(
         "tabnine assistant background mode"
       );
-      console.log("background validation mode");
+      Logger.info("background validation mode");
     }
 
     if (
@@ -453,9 +455,7 @@ function handlePasteChange(
               d.range.end.isBefore(firstPosition as vscode.Position)
             );
           assistantDiagnostics.set(event.document.uri, diagnostics);
-          if (diagnostics) {
-            setDecorators(diagnostics);
-          }
+          setDecorators(diagnostics);
           if (delta !== 0) {
             const newLength = currentRange.length + delta;
             const newEndPos = event.document.positionAt(

@@ -19,8 +19,11 @@ module.exports = {
     project: "./tsconfig.json",
     tsconfigRootDir: __dirname,
   },
-  plugins: ["@typescript-eslint", "import"],
+  plugins: ["@typescript-eslint", "import", "no-only-tests"],
+  ignorePatterns: ["vscode.proposed.inlineCompletions.d.ts"],
   rules: {
+    "import/prefer-default-export": "off",
+    "no-only-tests/no-only-tests": "error",
     "no-void": "off",
     "no-console": "off",
     "import/no-extraneous-dependencies": [

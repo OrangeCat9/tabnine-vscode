@@ -31,12 +31,17 @@ type CapabilitiesRequest = BinaryGenericRequest<{
   Features: Record<string, string>;
 }>;
 
+let lastPid = 100;
 export default function mockedRunProcess(): BinaryProcessRun {
+  // eslint-disable-next-line no-plusplus
+  const pid = lastPid++;
   when(spawnedProcessMock.killed).thenReturn(false);
   when(spawnedProcessMock.stdin).thenReturn(instance(stdinMock));
   when(spawnedProcessMock.stdout).thenReturn(instance(stdoutMock));
+  when(spawnedProcessMock.pid).thenReturn(pid);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
   when(readLineMock.once("line", anyFunction())).thenCall(
-    (event: string, callback: (line: string) => void) => {
+    (_event: string, callback: (line: string) => void) => {
       callback("1.2.3");
     }
   );
@@ -62,7 +67,11 @@ function mockCapabilitiesRequest() {
       return !!capabilitiesRequest?.request?.Features;
     },
     result: {
-      enabled_features: [Capability.ALPHA_CAPABILITY],
+      enabled_features: [
+        Capability.FIRST_SUGGESTION_DECORATION,
+        Capability.INLINE_SUGGESTIONS,
+        Capability.SNIPPET_SUGGESTIONS,
+      ],
     },
   });
 }
@@ -70,6 +79,7 @@ function mockCapabilitiesRequest() {
 function mockBinaryRequest(): void {
   let lineCallback: { (line: string): void } | null = null;
 
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
   when(readLineMock.on("line", anyFunction())).thenCall(
     (_: string, callback: (line: string) => void) => {
       lineCallback = callback;
@@ -79,6 +89,11 @@ function mockBinaryRequest(): void {
     const matchingItem = requestResponseItems.find(({ isQualified }) =>
       isQualified(request)
     );
+
+    if (matchingItem) {
+      const index = requestResponseItems.indexOf(matchingItem);
+      requestResponseItems.splice(index, 1);
+    }
 
     lineCallback?.(
       matchingItem ? response(request, matchingItem.result) : "null"
